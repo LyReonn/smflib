@@ -1,1 +1,3 @@
-# SMFlib
+# smflib stands for standard MIDI File library
+# usage: smflib -print -i input.mid
+more functions in development...
