@@ -19,20 +19,19 @@
 //  If defined, filtered events will be printed when calling WriteSMF().
 //#define _PRINT_FILTERED_EVENTS
 
-#define NewSMF()        (SMF *)malloc(sizeof(SMF))
-#define NewEvent()      (EVENT *)malloc(sizeof(EVENT))
-
-#define HEADER_TYPE     "MThd"
-#define TRACK_TYPE      "MTrk"
-#define HEADER_CHUNK_LENGTH (sizeof(WORD) * 3)
-#define HEADER_TOTAL_LENGTH (sizeof(DWORD) * 2 + HEADER_CHUNK_LENGTH)
-
 typedef char            CHAR;
 typedef unsigned char   BYTE;
 typedef unsigned short  WORD;       // 2 bytes on mac
 typedef unsigned int    DWORD;      // 4 bytes on mac
 typedef unsigned long   QWORD;      // 8 bytes on mac
 typedef size_t          SIZE;       // unsigned long on mac
+
+#define HEADER_TOTAL_LENGTH (sizeof(DWORD) * 2 + HEADER_CHUNK_LENGTH)
+#define HEADER_CHUNK_LENGTH (sizeof(WORD) * 3)
+#define HEADER_CHUNK_TYPE   "MThd"
+#define TRACK_CHUNK_TYPE    "MTrk"
+
+#pragma region // typedef enum
 
 typedef
     enum tagEventType
@@ -109,6 +108,10 @@ typedef
     }
 CTRL;
 
+#pragma endregion // typedef enum
+
+#pragma region // typedef struct
+
 typedef
     struct tagEvent
     {
@@ -131,8 +134,13 @@ typedef
         EVENT *firstEvent;
          SIZE size;
          BYTE *buffer;
+        const char *filePath;
     }
 SMF;
+
+#pragma endregion // typedef struct
+
+#pragma region // typedef error code
 
 typedef
     enum tagErrorCodeGeneral
@@ -147,7 +155,7 @@ typedef
     enum tagErrorCodeReadSMF
     {
         READSMF_SUCCESS = 0,
-        READSMF_CANNOT_OPEN_FILE = 0x10,
+        READSMF_CANNOT_OPEN_FILE = 10,
         READSMF_FILE_SIZE_ERROR,
         READSMF_SIZE_MISMATCH,
         READSMF_NOT_MIDI_FILE,
@@ -155,9 +163,23 @@ typedef
     }
 ERROR_CODE_READSMF;
 
+typedef
+    enum tagErrorCodePrintSMF
+    {
+        PRINTSMF_SUCCESS = 0,
+        PRINTSMF_INVALID_MEMBER_VALUE = 20,
+    }
+ERROR_CODE_PRINTSMF;
+
+#pragma endregion // typedef error code
+
+//  calloc will initialize the members of struct to 0 or NULL:
+#define NewSMF()    (SMF *)calloc(1, sizeof(SMF))
+#define NewEvent()  (EVENT *)calloc(1, sizeof(EVENT))
+
 int ReadSMF(const char *filePath, SMF *smf);
-//SMF *WriteSMF(const SMF *smf, WORD format);
-//void PrintSMF(const SMF *smf);
-//void CloseSMF(SMF *smf);
+int PrintSMF(const SMF *smf);
+void CloseSMF(SMF *smf);
+//int WriteSMF(const SMF *smf, WORD format);
 
 #endif /* SMFLIB_H_ */

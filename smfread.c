@@ -8,10 +8,12 @@
 
 //  ReadSomething() moves the pointer forward, while GetSomething() doesn't.
 //  We assume that variable length values are not larger than 0x0FFFFFFF.
+
 BYTE  ReadByte(const BYTE **ptr);
 CHAR *ReadString(const BYTE **ptr, const SIZE length);
 DWORD ReadValueBigEndian(const BYTE **ptr, const SIZE length);
 DWORD ReadValueVarLength(const BYTE **ptr);
+
 CHAR *GetString(const BYTE *ptr, const SIZE length);
 DWORD GetValueBigEndian(const BYTE *ptr, const SIZE length);
 DWORD GetValueVarLength(const BYTE *ptr);
@@ -25,9 +27,59 @@ int SetTypeAndLength(EVENT *event);
 
 #pragma region // main functions
 
+void CloseSMF(SMF *smf)
+{
+    EVENT *currentEvent = NULL;
+    EVENT *nextEvent = NULL;
+    DWORD eventCount = 0;
+
+    if (NULL == smf)
+    {
+        return;
+    }
+
+    if (NULL != smf->buffer)
+    {
+        free(smf->buffer);
+        smf->buffer = NULL;
+    }
+
+    if (NULL != smf->firstEvent)
+    {
+        currentEvent = smf->firstEvent;
+        smf->firstEvent = NULL;
+
+        while (NULL != currentEvent)
+        {
+            nextEvent = currentEvent->next;
+            free(currentEvent);
+            currentEvent = nextEvent;
+            eventCount++;
+        }
+
+        if (smf->eventCount != eventCount)
+        {
+            printf("* [WARNING] Event count mismatch! %d events are freed, while event count is %d\n", eventCount, smf->eventCount);
+        }
+    }
+
+    smf->filePath = NULL;
+    free(smf);
+
+    return;
+}
+
 int ReadSMF(const char *filePath, SMF *smf)
 {
-    int errorCode = ReadBuffer(filePath, smf);
+    int errorCode = READSMF_SUCCESS;
+
+    if (NULL == filePath
+    ||  NULL == smf)
+    {
+        return GENERAL_INPUT_ERROR;
+    }
+
+    errorCode = ReadBuffer(filePath, smf);
 
     if (READSMF_SUCCESS != errorCode)
     {
@@ -53,6 +105,7 @@ int ReadBuffer(const char *filePath, SMF *smf)
         return GENERAL_INPUT_ERROR;
     }
 
+    smf->filePath = filePath;
     fileStream = fopen(filePath, "rb");
 
     if (NULL == fileStream)
@@ -104,8 +157,10 @@ int ReadEvents(SMF *smf)
     DWORD chunkLength = 0;
     SIZE  totalLength = 0;
 
-    DWORD tick = 0;
     EVENT *currentEvent = NULL;
+    DWORD tick = 0;
+    DWORD noteOnCount = 0;
+    DWORD noteOffCount = 0;
 
     if (NULL == smf
     ||  NULL == smf->buffer
@@ -119,13 +174,13 @@ int ReadEvents(SMF *smf)
         return READSMF_NOT_MIDI_FILE;
     }
 
-    #pragma region // read and verify header chunk
+    #pragma region // read header chunk
 
     ptr[0] = smf->buffer;
     chunkType = ReadString(ptr, sizeof(DWORD));
     totalLength += sizeof(DWORD);
 
-    if (0 != strcmp(chunkType, HEADER_TYPE))
+    if (0 != strcmp(chunkType, HEADER_CHUNK_TYPE))
     {
         free(chunkType);
         return READSMF_NOT_MIDI_FILE;
@@ -146,7 +201,7 @@ int ReadEvents(SMF *smf)
 
     if (smf->format > 2)
     {
-        printf("warning! midi format is %d.\n", smf->format);
+        printf("* [WARNING] MIDI file format is %d\n", smf->format);
     }
 
     smf->trackCount = ReadValueBigEndian(ptr, sizeof(WORD));
@@ -167,11 +222,11 @@ int ReadEvents(SMF *smf)
 
     if (chunkLength > HEADER_CHUNK_LENGTH)
     {
-        printf("warning! header chunk has %d bytes!\n", chunkLength);
+        printf("* [WARNING] Header chunk has %d bytes, the rest will be skipped\n", chunkLength);
         *ptr += chunkLength - HEADER_CHUNK_LENGTH;
     }
 
-    #pragma endregion // read and verify header chunk
+    #pragma endregion // read header chunk
 
     #pragma region // read events in track chunk(s)
 
@@ -186,12 +241,12 @@ int ReadEvents(SMF *smf)
         totalLength += sizeof(DWORD) * 2;
         totalLength += chunkLength;
 
-        if (0 != strcmp(chunkType, TRACK_TYPE))
+        if (0 != strcmp(chunkType, TRACK_CHUNK_TYPE))
         {
-            printf("warning! chunk %d has a type of %s, will be skipped!\n", track, chunkType);
+            printf("* [WARNING] Chunk %d has a type of %s, will be skipped\n", track, chunkType);
             free(chunkType);
             *ptr += chunkLength;
-            continue; // continue to next chunk
+            continue; // continue to next chunk (for loop)
         }
 
         free(chunkType);
@@ -201,7 +256,6 @@ int ReadEvents(SMF *smf)
         {
             tick += ReadValueVarLength(ptr);
             currentEvent->buffer = *ptr;
-
             currentEvent->tick = tick;
             currentEvent->track = track;
 
@@ -210,10 +264,18 @@ int ReadEvents(SMF *smf)
                 return READSMF_INVALID_MIDI_FILE;
             }
 
-            *ptr += currentEvent->length;
             smf->eventCount++;
+            *ptr += currentEvent->length;
 
-            if (META_ENDOFTRACK == currentEvent->type)
+            if (EVENT_NOTEON == currentEvent->type)
+            {
+                noteOnCount++;
+            }
+            else if (EVENT_NOTEOFF == currentEvent->type)
+            {
+                noteOffCount++;
+            }
+            else if (META_ENDOFTRACK == currentEvent->type)
             {
                 if (*ptr - trackBegin != chunkLength)
                 {
@@ -222,8 +284,7 @@ int ReadEvents(SMF *smf)
 
                 if (track == smf->trackCount)
                 {
-                    currentEvent->next = NULL;
-                    break;
+                    break; // break while loop
                 }
             }
 
@@ -235,6 +296,12 @@ int ReadEvents(SMF *smf)
     if (totalLength != smf->size)
     {
         return READSMF_SIZE_MISMATCH;
+    }
+
+    if (noteOnCount != noteOffCount)
+    {
+        printf("* [WARNING] Note On event count does not match Note Off event count! ");
+        printf("%d Note On was read and %d Note Off was read\n", noteOnCount, noteOffCount);
     }
 
     #pragma endregion // read events in track chunk(s)
@@ -261,7 +328,7 @@ int SetTypeAndLength(EVENT *event)
         }
 
         event->type = runningStatus & 0b11110000;
-        
+
         switch (event->type)
         {
         case EVENT_NOTEOFF:
@@ -323,10 +390,13 @@ int SetTypeAndLength(EVENT *event)
             case EVENT_TIMECODE:
             case EVENT_SONGSEL:
                 event->length = 2;
+                break;
             case EVENT_SONGPOS:
                 event->length = 3;
+                break;
             case EVENT_TUNEREQ:
                 event->length = 1;
+                break;
             default:
                 return READSMF_INVALID_MIDI_FILE;
             }
@@ -348,7 +418,7 @@ BYTE ReadByte(const BYTE **ptr)
         return 0;
     }
 
-    return (*(*ptr)++); // returns **ptr (BYTE) and *ptr (BYTE *) moves 1 byte forward
+    return (*(*ptr)++); // returns **ptr (BYTE) and then *ptr (BYTE *) moves 1 byte forward
 }
 
 CHAR *ReadString(const BYTE **ptr, const SIZE length)

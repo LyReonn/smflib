@@ -10,7 +10,7 @@ int main(const int argc, const char *argv[])
     ||  0 != strcmp(argv[1], "-print")
     ||  0 != strcmp(argv[2], "-i"))
     {
-        printf("usage: smflib -print -i input.mid\n");
+        printf("* [INFO] Usage: smflib -print -i input.mid\n");
         return GENERAL_INPUT_ERROR;
     }
 
@@ -19,13 +19,13 @@ int main(const int argc, const char *argv[])
 
     if (READSMF_SUCCESS != errorCode)
     {
-        printf("error reading midi file! error code: %d\n", errorCode);
-        //CloseSMF(smf);
+        printf("* [ERROR] Failed reading MIDI file! Error code: %d\n", errorCode);
+        CloseSMF(smf);
         return errorCode;
     }
 
-    printf("file size: %d\n", (int)(smf->size));
-    //CloseSMF(smf);
+    PrintSMF(smf);
+    CloseSMF(smf);
 
     return GENERAL_SUCCESS;
 }
